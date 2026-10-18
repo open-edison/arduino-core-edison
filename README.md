@@ -61,10 +61,13 @@ as the `edison` user, and restarts it when a new one arrives.
 - **SPI** is SPI5 on the header: SCK on 13, MISO on 12, MOSI on 11 (and the ICSP header).
   `SPI.begin()` takes those pins from GPIO (the DS2 LED on 13 flickers with the clock); `SPI.end()`
   or `pinMode()` gives them back. The device's chip select (10, or any pin) is driven by the
-  sketch or library with `digitalWrite()`, as usual. All four modes and MSB/LSB first; tested to
-  10 MHz. Transfers go in 7-byte pieces, because the SPI controller's DMA (used from 8 bytes)
-  hangs the board, so throughput is about 10 KB/s whatever the clock: fine for sensors and small
-  displays, slow for large transfers. Needs edison-image v0.2.6 or later.
+  sketch or library with `digitalWrite()`, as usual. All four modes and MSB/LSB first; up to
+  10 MHz, the tested limit (a library asking for more gets 10 MHz, as other boards give their
+  fastest clock). Each call costs about 100 us in the kernel whatever its size, and long
+  transfers run at about 420 KB/s, so send blocks (`SPI.transfer(buffer, length)`) where you
+  can. Libraries that send a byte at a time are slow: Adafruit's ST7735 driver takes about 4 s
+  to fill a 128x128 display, which one 32 KB transfer does in 77 ms. Needs edison-image v0.2.6
+  or later.
 - **Servo** drives hobby servos on ~3, ~5, ~6 and ~9 (one each) from the hardware PWM at
   50 Hz. The hardware sets the pulse in 255ths of the period: steps of 78 us at 50 Hz,
   about 7.5 degrees over the default range. `servo.setRefreshInterval(10000)` (100 Hz)

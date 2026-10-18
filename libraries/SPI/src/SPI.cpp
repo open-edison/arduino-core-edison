@@ -23,6 +23,13 @@
 
 namespace {
 
+// The fastest clock tested with the kit's level shifters. Faster requests get this, as on
+// other boards, where asking for more than the hardware can do gives its fastest clock
+// (Adafruit's ST77xx library, for one, asks for 32 MHz).
+const uint32_t max_clock = 10000000;
+
+uint32_t limit_clock(uint32_t hz) { return hz > max_clock ? max_clock : hz; }
+
 uint8_t reverse(uint8_t b) {
     b = uint8_t((b & 0xF0) >> 4 | (b & 0x0F) << 4);
     b = uint8_t((b & 0xCC) >> 2 | (b & 0x33) << 2);
@@ -40,7 +47,7 @@ void EdisonSPI::begin() {
     if (fd_ < 0) {
         if (!warned_) {
             warned_ = true;
-            fprintf(stderr, "SPI: can't open %s: %s (needs edison-image v0.2.5 or later)\n",
+            fprintf(stderr, "SPI: can't open %s: %s (needs edison-image v0.2.6 or later)\n",
                     device_, strerror(errno));
         }
         edison_spi_pins_enable(false);
@@ -54,6 +61,12 @@ void EdisonSPI::begin() {
     }
     // The device already has a clock mode; don't set it again unless it changes.
     applied_mode_ = uint8_t(base_mode_ & SPI_MODE_3);
+    // The most spidev takes in one message.
+    if (FILE *f = fopen("/sys/module/spidev/parameters/bufsiz", "r")) {
+        unsigned long n = 0;
+        if (fscanf(f, "%lu", &n) == 1 && n > 0) max_message_ = n;
+        fclose(f);
+    }
 }
 
 void EdisonSPI::end() {
@@ -64,7 +77,7 @@ void EdisonSPI::end() {
 }
 
 void EdisonSPI::beginTransaction(arduino::SPISettings settings) {
-    clock_ = settings.getClockFreq();
+    clock_ = limit_clock(settings.getClockFreq());
     mode_ = uint8_t(settings.getDataMode());
     lsb_first_ = settings.getBitOrder() == LSBFIRST;
 }
@@ -74,7 +87,7 @@ void EdisonSPI::setBitOrder(BitOrder order) { lsb_first_ = order == LSBFIRST; }
 void EdisonSPI::setDataMode(uint8_t mode) { mode_ = mode & 3; }
 
 void EdisonSPI::setClockDivider(uint8_t divider) {
-    if (divider) clock_ = 16000000 / divider;
+    if (divider) clock_ = limit_clock(16000000 / divider);
 }
 
 // The SPI mode is a property of the device file; change it only when it changes.
@@ -99,33 +112,28 @@ void EdisonSPI::transfer(const void *tx, void *rx, size_t count) {
         if (rx) memset(rx, 0, count);
         return;
     }
-    // Bit order is done here: the controller sends most significant bit first.
-    std::vector<uint8_t> out(count, 0), in(count, 0);
-    if (tx) memcpy(out.data(), tx, count);
-    if (lsb_first_) {
-        for (uint8_t &b : out) b = reverse(b);
-    }
-    // The SPI controller's driver uses DMA for transfers of 8 bytes or more, and that hangs
-    // the board (the transfer times out, then a CPU stalls). Below 8 bytes it doesn't: send
-    // 7-byte segments, many to one message (one system call), with the chip select held
-    // between them, so the device sees one transfer. A message holds at most 511 segments
-    // (the ioctl's size field), within spidev's 4096-byte buffer.
-    const size_t segment = 7, per_message = 511 * segment;
-    std::vector<spi_ioc_transfer> segs;
-    for (size_t msg = 0; msg < count; msg += per_message) {
-        size_t end = count - msg < per_message ? count : msg + per_message;
-        segs.clear();
-        for (size_t off = msg; off < end; off += segment) {
-            spi_ioc_transfer t = {};
-            t.tx_buf = reinterpret_cast<uintptr_t>(out.data() + off);
-            t.rx_buf = reinterpret_cast<uintptr_t>(in.data() + off);
-            t.len = uint32_t(end - off < segment ? end - off : segment);
-            t.speed_hz = clock_;
-            t.bits_per_word = 8;
-            segs.push_back(t);
+    // The caller's buffers go to spidev as they are (it copies them; tx and rx may be the
+    // same buffer). Only an LSB-first transfer, or one with nothing to send, needs a copy:
+    // the controller sends most significant bit first, so bit order is done here.
+    const uint8_t *out = static_cast<const uint8_t *>(tx);
+    if (!tx || lsb_first_) {
+        if (scratch_.size() < count) scratch_.resize(count);
+        for (size_t i = 0; i < count; i++) {
+            scratch_[i] = !tx ? 0 : lsb_first_ ? reverse(out[i]) : out[i];
         }
-        unsigned long request = _IOC(_IOC_WRITE, SPI_IOC_MAGIC, 0, SPI_MSGSIZE(segs.size()));
-        if (ioctl(fd_, request, segs.data()) < 0) {
+        out = scratch_.data();
+    }
+    uint8_t *in = static_cast<uint8_t *>(rx);
+    // One message per spidev buffer's worth. edison-image (v0.2.6) has the SPI controller
+    // use PIO for every transfer: its DMA hangs the board, so this needs that image.
+    for (size_t off = 0; off < count; off += max_message_) {
+        spi_ioc_transfer t = {};
+        t.tx_buf = reinterpret_cast<uintptr_t>(out + off);
+        t.rx_buf = in ? reinterpret_cast<uintptr_t>(in + off) : 0;
+        t.len = uint32_t(count - off < max_message_ ? count - off : max_message_);
+        t.speed_hz = clock_;
+        t.bits_per_word = 8;
+        if (ioctl(fd_, SPI_IOC_MESSAGE(1), &t) < 0) {
             if (!warned_) {
                 warned_ = true;
                 fprintf(stderr, "SPI: transfer failed: %s\n", strerror(errno));
@@ -133,11 +141,8 @@ void EdisonSPI::transfer(const void *tx, void *rx, size_t count) {
             break;
         }
     }
-    if (rx) {
-        if (lsb_first_) {
-            for (uint8_t &b : in) b = reverse(b);
-        }
-        memcpy(rx, in.data(), count);
+    if (in && lsb_first_) {
+        for (size_t i = 0; i < count; i++) in[i] = reverse(in[i]);
     }
 }
 

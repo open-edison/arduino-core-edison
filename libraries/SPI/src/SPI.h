@@ -15,6 +15,8 @@
 
 #include <Arduino.h>
 
+#include <vector>
+
 #include "api/HardwareSPI.h"
 
 // AVR-era clock dividers (of 16 MHz), for libraries that still use setClockDivider().
@@ -63,6 +65,8 @@ class EdisonSPI : public arduino::HardwareSPI {
     bool lsb_first_ = false;
     uint8_t applied_mode_ = 0xFF;
     uint32_t base_mode_ = 0;  // the device's mode bits at open (SPI_CS_HIGH)
+    size_t max_message_ = 4096;  // spidev's limit on one message (its bufsiz)
+    std::vector<uint8_t> scratch_;  // reused for LSB-first transfers and ones sending zeros
     bool warned_ = false;
 };
 
