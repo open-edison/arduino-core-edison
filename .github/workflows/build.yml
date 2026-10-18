@@ -148,7 +148,7 @@ jobs:
       - name: Compile sketches
         run: |
           cli=cli/arduino-cli
-          $cli lib install elapsedMillis
+          $cli lib install elapsedMillis "Adafruit ST7735 and ST7789 Library"
           for sketch in core/tests/sketches/* core/libraries/*/examples/* \
             sketchbook/libraries/elapsedMillis/examples/*; do
             echo "::group::$sketch"
