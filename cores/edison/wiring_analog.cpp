@@ -18,6 +18,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <mutex>
 #include <string>
 
@@ -31,6 +32,10 @@ const int ADC_CHANNELS = 8;
 
 int resolution = 10;
 std::mutex lock;
+
+// Held through an SPI transaction, and by analogRead() (see gpio.h).
+std::recursive_timed_mutex spi_bus;
+thread_local int transactions = 0;  // this thread's open transactions
 int fds[ADC_CHANNELS] = {-1, -1, -1, -1, -1, -1, -1, -1};
 bool failed[ADC_CHANNELS];  // couldn't be opened: reported once, then given up
 
@@ -97,12 +102,34 @@ int read_raw(int ch) {
 
 }  // namespace
 
+void edison_spi_transaction_begin() {
+    spi_bus.lock();
+    transactions++;
+}
+
+void edison_spi_transaction_end() {
+    if (transactions == 0) return;  // an end without a begin, in this thread
+    transactions--;
+    spi_bus.unlock();
+}
+
 int analogRead(pin_size_t pin) {
     // analogRead(0) means A0, as on other boards.
     if (pin < NUM_ANALOG_INPUTS) pin += PIN_A0;
     int ch = edison_analog_select(pin);
     if (ch < 0) return 0;
+    // Wait for another thread's SPI transaction to end, but not forever: a sketch might
+    // never end one. (Within this thread's own transaction it goes ahead.)
+    bool held = spi_bus.try_lock_for(std::chrono::seconds(1));
+    if (!held) {
+        static bool reported;
+        if (!reported) {
+            reported = true;
+            fprintf(stderr, "analogRead: an SPI transaction has been open for 1 s; reading anyway\n");
+        }
+    }
     int raw = read_raw(ch);
+    if (held) spi_bus.unlock();
     if (raw < 0) return 0;
     return resolution >= ADC_BITS ? raw << (resolution - ADC_BITS) : raw >> (ADC_BITS - resolution);
 }

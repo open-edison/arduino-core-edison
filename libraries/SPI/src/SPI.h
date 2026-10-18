@@ -36,7 +36,7 @@ class EdisonSPI : public arduino::HardwareSPI {
     void end() override;
 
     void beginTransaction(arduino::SPISettings settings) override;
-    void endTransaction(void) override {}
+    void endTransaction(void) override;
 
     uint8_t transfer(uint8_t data) override;
     uint16_t transfer16(uint16_t data) override;

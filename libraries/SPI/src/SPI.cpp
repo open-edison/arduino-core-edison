@@ -77,10 +77,15 @@ void EdisonSPI::end() {
 }
 
 void EdisonSPI::beginTransaction(arduino::SPISettings settings) {
+    // Until endTransaction(): analogRead() (the kit ADC shares SPI5) and other threads'
+    // transactions wait, as the device may be selected by its GPIO chip select.
+    edison_spi_transaction_begin();
     clock_ = limit_clock(settings.getClockFreq());
     mode_ = uint8_t(settings.getDataMode());
     lsb_first_ = settings.getBitOrder() == LSBFIRST;
 }
+
+void EdisonSPI::endTransaction() { edison_spi_transaction_end(); }
 
 void EdisonSPI::setBitOrder(BitOrder order) { lsb_first_ = order == LSBFIRST; }
 

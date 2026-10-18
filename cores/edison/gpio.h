@@ -33,6 +33,13 @@ long edison_gpio_pulse(unsigned pin, bool high, unsigned long timeout_us);
 // inputs. Returns false (reported) if a pin can't be had.
 bool edison_spi_pins_enable(bool on);
 
+// SPI5 also carries the kit's ADC (CS0). Between the SPI library's beginTransaction() and
+// endTransaction() a device may be selected by its GPIO chip select, and an ADC conversion
+// on the bus would reach it as data: analogRead() waits until the transaction ends. Also
+// keeps two threads' transactions apart. (In wiring_analog.cpp.)
+void edison_spi_transaction_begin();
+void edison_spi_transaction_end();
+
 // In wiring_pwm.cpp: switch a PWM channel's SoC pin to its PWM function (edison-image's
 // edison-pinmux service), and stop a channel when its pin goes back to GPIO use.
 bool edison_pwm_pinmux(int channel);

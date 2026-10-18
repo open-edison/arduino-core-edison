@@ -81,8 +81,11 @@ as the `edison` user, and restarts it when a new one arrives.
   fastest clock). Each call costs about 100 us in the kernel whatever its size, and long
   transfers run at about 420 KB/s, so send blocks (`SPI.transfer(buffer, length)`) where you
   can. Libraries that send a byte at a time are slow: Adafruit's ST7735 driver takes about 4 s
-  to fill a 128x128 display, which one 32 KB transfer does in 77 ms. Needs edison-image v0.2.6
-  or later.
+  to fill a 128x128 display, which one 32 KB transfer does in 77 ms. The kit's ADC is on the
+  same bus, so `analogRead()` from another thread (an interrupt handler, say) waits while an
+  SPI transaction (`beginTransaction()` to `endTransaction()`) is open; otherwise the ADC's
+  traffic would reach the selected device as data. Another program using SPI5 at the same
+  time can't be coordinated with. Needs edison-image v0.2.6 or later.
 - **Servo** drives hobby servos on ~3, ~5, ~6 and ~9 (one each) from the hardware PWM at
   50 Hz. The hardware sets the pulse in 255ths of the period: steps of 78 us at 50 Hz,
   about 7.5 degrees over the default range. `servo.setRefreshInterval(10000)` (100 Hz)
