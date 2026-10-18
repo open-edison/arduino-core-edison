@@ -129,8 +129,9 @@ void EdisonSPI::transfer(const void *tx, void *rx, size_t count) {
         out = scratch_.data();
     }
     uint8_t *in = static_cast<uint8_t *>(rx);
-    // One message per spidev buffer's worth. edison-image (v0.2.6) has the SPI controller
-    // use PIO for every transfer: its DMA hangs the board, so this needs that image.
+    // One message per spidev buffer's worth. Needs edison-image v0.2.6 or later: before it,
+    // the controller's DMA (used from 8 bytes) was blamed for hanging the board, and this
+    // library sent 7-byte pieces. v0.2.6-v0.2.7 use PIO only; v0.2.8 DMA from 512 bytes.
     for (size_t off = 0; off < count; off += max_message_) {
         spi_ioc_transfer t = {};
         t.tx_buf = reinterpret_cast<uintptr_t>(out + off);

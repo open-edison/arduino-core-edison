@@ -79,9 +79,10 @@ as the `edison` user, and restarts it when a new one arrives.
   sketch or library with `digitalWrite()`, as usual. All four modes and MSB/LSB first; up to
   10 MHz, the tested limit (a library asking for more gets 10 MHz, as other boards give their
   fastest clock). Each call costs about 100 us in the kernel whatever its size, and long
-  transfers run at about 420 KB/s, so send blocks (`SPI.transfer(buffer, length)`) where you
+  transfers run at about 900 KB/s (edison-image v0.2.8 and later, which uses DMA from 512
+  bytes; about 420 KB/s before), so send blocks (`SPI.transfer(buffer, length)`) where you
   can. Libraries that send a byte at a time are slow: Adafruit's ST7735 driver takes about 4 s
-  to fill a 128x128 display, which one 32 KB transfer does in 77 ms. The kit's ADC is on the
+  to fill a 128x128 display, which one 32 KB transfer does in under 40 ms. The kit's ADC is on the
   same bus, so `analogRead()` from another thread (an interrupt handler, say) waits while an
   SPI transaction (`beginTransaction()` to `endTransaction()`) is open; otherwise the ADC's
   traffic would reach the selected device as data. (After 10 s it reads anyway, so a
