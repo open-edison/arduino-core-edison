@@ -1,13 +1,13 @@
 // tone() measured with pulseIn(): jumper each tone pin to its input pin. 11 -> 12 tests a
-// tone made by toggling the pin (11 has no PWM); 3 -> A0 a tone made by the hardware PWM
-// (A0 as a digital input; IO2 was tried first, but its input loses edges). A pair without
-// a jumper reports "no signal". Results on Serial and the sketch's log.
+// tone made by toggling the pin (11 has no PWM); 3 -> 2 a tone made by the hardware PWM
+// (any input pin works, A0 included). A pair without a jumper reports "no signal". Results
+// on Serial and the sketch's log. pulseIn() needs edison-image v0.2.7 to be exact.
 #include <stdio.h>
 
 struct Pair {
     uint8_t tone_pin, in_pin;
 };
-const Pair pairs[] = {{11, 12}, {3, A0}};
+const Pair pairs[] = {{11, 12}, {3, 2}};
 const unsigned frequencies[] = {100, 440, 1000, 2000, 5000};
 
 void say(const char *line) {
