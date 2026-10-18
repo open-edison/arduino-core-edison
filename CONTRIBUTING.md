@@ -82,5 +82,5 @@ The Boards Manager URL always serves the latest release's index:
   comment (`actions/checkout@<sha> # v7.0.1`). Actions published as immutable releases use
   their exact tag instead. Dependabot opens one grouped pull request a month with updates.
 - **Hardware changes need a hardware test.** Note what you tested on a real board in the
-  pull request; findings go in
-  [edison-docs](https://github.com/open-edison/edison-docs).
+  pull request, with anything you found that users should know (it belongs in the README or
+  the docs).
