@@ -119,13 +119,15 @@ int analogRead(pin_size_t pin) {
     int ch = edison_analog_select(pin);
     if (ch < 0) return 0;
     // Wait for another thread's SPI transaction to end, but not forever: a sketch might
-    // never end one. (Within this thread's own transaction it goes ahead.)
-    bool held = spi_bus.try_lock_for(std::chrono::seconds(1));
+    // never end one. Generously, as a transaction can legitimately take over a second (a
+    // large transfer, or the bus shared with another program). (Within this thread's own
+    // transaction it goes ahead.)
+    bool held = spi_bus.try_lock_for(std::chrono::seconds(10));
     if (!held) {
         static bool reported;
         if (!reported) {
             reported = true;
-            fprintf(stderr, "analogRead: an SPI transaction has been open for 1 s; reading anyway\n");
+            fprintf(stderr, "analogRead: an SPI transaction has been open for 10 s; reading anyway\n");
         }
     }
     int raw = read_raw(ch);

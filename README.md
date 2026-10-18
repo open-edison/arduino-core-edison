@@ -84,7 +84,8 @@ as the `edison` user, and restarts it when a new one arrives.
   to fill a 128x128 display, which one 32 KB transfer does in 77 ms. The kit's ADC is on the
   same bus, so `analogRead()` from another thread (an interrupt handler, say) waits while an
   SPI transaction (`beginTransaction()` to `endTransaction()`) is open; otherwise the ADC's
-  traffic would reach the selected device as data. Another program using SPI5 at the same
+  traffic would reach the selected device as data. (After 10 s it reads anyway, so a
+  transaction that's never ended can't hang it.) Another program using SPI5 at the same
   time can't be coordinated with. Needs edison-image v0.2.6 or later.
 - **Servo** drives hobby servos on ~3, ~5, ~6 and ~9 (one each) from the hardware PWM at
   50 Hz. The hardware sets the pulse in 255ths of the period: steps of 78 us at 50 Hz,
