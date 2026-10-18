@@ -61,7 +61,10 @@ as the `edison` user, and restarts it when a new one arrives.
 - **pulseIn** (and `pulseInLong`) times pulses from the kernel's edge timestamps, so the
   result is exact to a few microseconds however busy the board is. As on other boards, a
   pulse already in progress is skipped and the timeout covers the whole wait. On a pin with
-  `attachInterrupt()`, it reads the pin in a loop instead, which is less exact.
+  `attachInterrupt()`, it reads the pin in a loop instead, which is less exact. Needs
+  edison-image v0.2.7 or later for that accuracy: it keeps the CPUs out of deep sleep while
+  it waits, as the timestamps are taken when the CPU handles the edge; on earlier images
+  results can be off by a few hundred microseconds.
 - **tone** plays a square wave on any pin, one tone at a time, as on AVR boards; the duration
   doesn't block, and `noTone()` leaves the pin LOW. On ~3, ~5, ~6 and ~9 the hardware PWM
   makes it, at the exact frequency. On other pins a thread toggles the pin: within about 1%
