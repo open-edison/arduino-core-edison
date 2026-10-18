@@ -7,7 +7,7 @@ An Arduino core for the Intel Edison on the Arduino expansion board, for boards 
 **Status: early.** Works: `pinMode`/`digitalWrite`/`digitalRead` on the header pins,
 `Serial` (USB) and `Serial1` (IO0/IO1), `millis`/`micros`/delays, upload over USB or the
 network, `analogRead` on A0-A3, `analogWrite` (PWM) on ~3/~5/~6/~9, `attachInterrupt`,
-`Wire` (I2C), `SPI` and `Servo`. Not yet: `tone`, `pulseIn`.
+`tone`, `pulseIn`, `shiftIn`/`shiftOut`, `Wire` (I2C), `SPI` and `Servo`.
 
 ## Installing
 
@@ -58,6 +58,16 @@ as the `edison` user, and restarts it when a new one arrives.
   `noInterrupts()`/`interrupts()` hold them off, so wrap reads of what a handler changes
   in them, as on other boards. `RISING`, `FALLING` and `CHANGE` are exact (tested at 490
   edges/s); `LOW`/`HIGH` are checked every millisecond while the level lasts.
+- **pulseIn** (and `pulseInLong`) times pulses from the kernel's edge timestamps, so the
+  result is exact to a few microseconds however busy the board is. As on other boards, a
+  pulse already in progress is skipped and the timeout covers the whole wait. On a pin with
+  `attachInterrupt()`, it reads the pin in a loop instead, which is less exact.
+- **tone** plays a square wave on any pin, one tone at a time, as on AVR boards; the duration
+  doesn't block, and `noTone()` leaves the pin LOW. On ~3, ~5, ~6 and ~9 the hardware PWM
+  makes it, at the exact frequency. On other pins a thread toggles the pin: within about 1%
+  up to 2 kHz, rougher above, and it uses up to a whole CPU core while it plays (it spins
+  between edges for accuracy).
+- **shiftOut** and **shiftIn** work as on other boards, at a few microseconds per bit.
 - **SPI** is SPI5 on the header: SCK on 13, MISO on 12, MOSI on 11 (and the ICSP header).
   `SPI.begin()` takes those pins from GPIO (the DS2 LED on 13 flickers with the clock); `SPI.end()`
   or `pinMode()` gives them back. The device's chip select (10, or any pin) is driven by the

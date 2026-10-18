@@ -24,6 +24,11 @@ int edison_gpio_edges(unsigned pin, int edges);
 // calling cb(rising, arg) for each with no locks held.
 void edison_gpio_events(unsigned pin, void (*cb)(bool rising, void *arg), void *arg);
 
+// For pulseIn(): the length in microseconds of the next whole pulse at the given level on
+// an input pin, from the kernel's edge timestamps; 0 on timeout. Returns -1 if edges can't
+// be used (attachInterrupt() has the pin): the caller should poll instead.
+long edison_gpio_pulse(unsigned pin, bool high, unsigned long timeout_us);
+
 // Route IO11-IO13 to SPI5 (MOSI, MISO, SCK) for the SPI library, or (on = false) back to
 // inputs. Returns false (reported) if a pin can't be had.
 bool edison_spi_pins_enable(bool on);

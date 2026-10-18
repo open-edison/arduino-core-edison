@@ -7,9 +7,13 @@
   either version 2.1 of the License, or (at your option) any later version.
 */
 #include <errno.h>
+#include <fcntl.h>
 #include <gpiod.h>
+#include <poll.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 #include <map>
 #include <mutex>
@@ -126,6 +130,8 @@ enum class State { Unset, Input, Output, Analog, Pwm, Spi, Failed };
 
 bool spi_active = false;  // IO11-IO13 are routed to SPI5 (SPI library)
 State state[NUM_DIGITAL_PINS];
+// Edge detection left on by pulseIn() (reconfiguring the pin turns it off).
+bool pulse_edges[NUM_DIGITAL_PINS];
 
 // Report each pin's problem once: sketches call these functions in loops.
 bool reported[NUM_DIGITAL_PINS];
@@ -183,6 +189,7 @@ bool configure(pin_size_t pin, PinMode mode) {
 void set_mode(pin_size_t pin, PinMode mode) {
     // Requesting the SoC line below returns the pin from PWM to GPIO; stop the PWM first.
     if (state[pin] == State::Pwm) edison_pwm_stop(edison_pins[pin].pwm);
+    pulse_edges[pin] = false;
     if (configure(pin, mode)) {
         state[pin] = mode == OUTPUT ? State::Output : State::Input;
     } else {
@@ -292,39 +299,156 @@ bool edison_spi_pins_enable(bool on) {
     return true;
 }
 
-int edison_gpio_edges(unsigned pin, int edges) {
-    if (pin >= NUM_DIGITAL_PINS) return -1;
-    std::lock_guard<std::mutex> lock(gpio_lock);
-    // As on other boards, a pin starts as an input; attachInterrupt() doesn't change one
-    // that pinMode() made an output or another function.
-    if (state[pin] == State::Unset) set_mode(pin_size_t(pin), INPUT);
-    if (state[pin] != State::Input) {
-        report(pin_size_t(pin), "attachInterrupt", "the pin isn't an input (pinMode INPUT)");
-        return -1;
-    }
-    Line soc = soc_line(edison_pins[pin].soc);
-    gpiod_line_request *r = request_of(soc);
-    if (!r) return -1;
+namespace {
+
+// The edges attachInterrupt() asked for on each pin (0: none).
+int edges_wanted[NUM_DIGITAL_PINS];
+
+// Set an input line's edge detection. Called with gpio_lock held.
+bool set_edges(Line soc, gpiod_line_request *r, gpiod_line_edge edge) {
     gpiod_line_settings *s = gpiod_line_settings_new();
     gpiod_line_config *lc = gpiod_line_config_new();
-    int fd = -1;
+    bool ok = false;
     if (s && lc) {
         gpiod_line_settings_set_direction(s, GPIOD_LINE_DIRECTION_INPUT);
-        gpiod_line_settings_set_edge_detection(
-            s, edges == RISING    ? GPIOD_LINE_EDGE_RISING
-               : edges == FALLING ? GPIOD_LINE_EDGE_FALLING
-               : edges == CHANGE  ? GPIOD_LINE_EDGE_BOTH
-                                  : GPIOD_LINE_EDGE_NONE);
+        gpiod_line_settings_set_edge_detection(s, edge);
         gpiod_line_config_add_line_settings(lc, &soc.offset, 1, s);
-        if (gpiod_line_request_reconfigure_lines(r, lc) == 0) {
-            fd = gpiod_line_request_get_fd(r);
-        } else {
-            report(pin_size_t(pin), "attachInterrupt", strerror(errno));
-        }
+        ok = gpiod_line_request_reconfigure_lines(r, lc) == 0;
     }
     gpiod_line_config_free(lc);
     gpiod_line_settings_free(s);
-    return fd;
+    return ok;
+}
+
+// As on other boards, a pin starts as an input; edge functions don't change one that
+// pinMode() made an output or another function. Called with gpio_lock held.
+bool input_for(unsigned pin, const char *what) {
+    if (state[pin] == State::Unset) set_mode(pin_size_t(pin), INPUT);
+    if (state[pin] != State::Input) {
+        report(pin_size_t(pin), what, "the pin isn't an input (pinMode INPUT)");
+        return false;
+    }
+    return true;
+}
+
+uint64_t now_ns() {
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return uint64_t(ts.tv_sec) * 1000000000u + ts.tv_nsec;
+}
+
+// While it exists, asks the kernel to keep the CPUs within 10 us of waking (C1, not the
+// deep idle states). Does nothing if the sketch may not (an image before v0.2.7).
+class CpuLatency {
+  public:
+    CpuLatency() {
+        fd_ = open("/dev/cpu_dma_latency", O_WRONLY | O_CLOEXEC);
+        int32_t us = 10;
+        if (fd_ >= 0 && write(fd_, &us, sizeof(us)) != ssize_t(sizeof(us))) {
+            close(fd_);
+            fd_ = -1;
+        }
+    }
+    ~CpuLatency() {
+        if (fd_ >= 0) close(fd_);  // closing withdraws the request
+    }
+    CpuLatency(const CpuLatency &) = delete;
+    CpuLatency &operator=(const CpuLatency &) = delete;
+
+  private:
+    int fd_ = -1;
+};
+
+}  // namespace
+
+int edison_gpio_edges(unsigned pin, int edges) {
+    if (pin >= NUM_DIGITAL_PINS) return -1;
+    std::lock_guard<std::mutex> lock(gpio_lock);
+    if (!input_for(pin, "attachInterrupt")) return -1;
+    Line soc = soc_line(edison_pins[pin].soc);
+    gpiod_line_request *r = request_of(soc);
+    if (!r) return -1;
+    gpiod_line_edge edge = edges == RISING    ? GPIOD_LINE_EDGE_RISING
+                           : edges == FALLING ? GPIOD_LINE_EDGE_FALLING
+                           : edges == CHANGE  ? GPIOD_LINE_EDGE_BOTH
+                                              : GPIOD_LINE_EDGE_NONE;
+    if (!set_edges(soc, r, edge)) {
+        report(pin_size_t(pin), "attachInterrupt", strerror(errno));
+        return -1;
+    }
+    edges_wanted[pin] = edges;
+    pulse_edges[pin] = false;
+    return gpiod_line_request_get_fd(r);
+}
+
+long edison_gpio_pulse(unsigned pin, bool high, unsigned long timeout_us) {
+    if (pin >= NUM_DIGITAL_PINS) return 0;
+    Line soc = soc_line(edison_pins[pin].soc);
+    int fd;
+    bool level;
+    {
+        std::lock_guard<std::mutex> lock(gpio_lock);
+        if (!input_for(pin, "pulseIn")) return 0;
+        // attachInterrupt()'s thread reads this pin's edges: the caller polls instead.
+        if (edges_wanted[pin]) return -1;
+        gpiod_line_request *r = request_of(soc);
+        if (!r) return -1;
+        fd = gpiod_line_request_get_fd(r);
+        // Edge detection stays on between calls: turning it on (the kernel requesting an
+        // interrupt) is slow. Edges from before this call are stale: drop them.
+        if (pulse_edges[pin]) {
+            static gpiod_edge_event_buffer *stale = gpiod_edge_event_buffer_new(16);
+            pollfd p = {fd, POLLIN, 0};
+            while (stale && poll(&p, 1, 0) > 0 && (p.revents & POLLIN)) {
+                if (gpiod_line_request_read_edge_events(r, stale, 16) <= 0) break;
+            }
+        } else if (set_edges(soc, r, GPIOD_LINE_EDGE_BOTH)) {
+            pulse_edges[pin] = true;
+        } else {
+            return -1;
+        }
+        // Read after edges are on, so no change can fall between the two.
+        level = gpiod_line_request_get_value(r, soc.offset) == GPIOD_LINE_VALUE_ACTIVE;
+    }
+    // The kernel timestamps each edge when it handles the interrupt, so the pulse is
+    // measured where it happened, however late this thread gets to read it, as long as the
+    // CPU is awake to handle it: from a deep idle state (C6, C7) that takes 0.1-1.2 ms, and
+    // varies. Keep the CPUs out of those while waiting (edison-image v0.2.7 lets sketches;
+    // without it, timings are off by up to a few hundred microseconds).
+    CpuLatency awake;
+    // Wait without the lock: the stop thread needs it.
+    const uint64_t deadline = now_ns() + uint64_t(timeout_us) * 1000u;
+    bool leaving = level == high;  // in a pulse already: wait for the next whole one
+    bool started = false, done = false;
+    uint64_t start = 0, end = 0;
+    while (!done) {
+        uint64_t now = now_ns();
+        if (now >= deadline) break;
+        pollfd p = {fd, POLLIN, 0};
+        if (poll(&p, 1, int((deadline - now + 999999) / 1000000)) <= 0) continue;
+        std::lock_guard<std::mutex> lock(gpio_lock);
+        static gpiod_edge_event_buffer *buf = gpiod_edge_event_buffer_new(16);
+        gpiod_line_request *r = request_of(soc);
+        if (!r || !buf) break;
+        int n = gpiod_line_request_read_edge_events(r, buf, 16);
+        for (int i = 0; i < n && !done; i++) {
+            gpiod_edge_event *e = gpiod_edge_event_buffer_get_event(buf, i);
+            bool now_high = gpiod_edge_event_get_event_type(e) == GPIOD_EDGE_EVENT_RISING_EDGE;
+            uint64_t ts = gpiod_edge_event_get_timestamp_ns(e);
+            if (leaving) {
+                leaving = now_high == high;
+            } else if (!started) {
+                if (now_high == high) {
+                    started = true;
+                    start = ts;
+                }
+            } else if (now_high != high) {
+                end = ts;
+                done = true;
+            }
+        }
+    }
+    return done ? long((end - start) / 1000u) : 0;
 }
 
 void edison_gpio_events(unsigned pin, void (*cb)(bool rising, void *arg), void *arg) {
