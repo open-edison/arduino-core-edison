@@ -61,7 +61,9 @@ as the `edison` user, and restarts it when a new one arrives.
 - **pulseIn** (and `pulseInLong`) times pulses from the kernel's edge timestamps, so the
   result is exact to a few microseconds however busy the board is. As on other boards, a
   pulse already in progress is skipped and the timeout covers the whole wait. On a pin with
-  `attachInterrupt()`, it reads the pin in a loop instead, which is less exact. Needs
+  `attachInterrupt()`, it reads the pin in a loop instead, which is less exact. Pulses need
+  to be at least about 50 us long: shorter ones are missed or misread, as Linux tells a
+  rising edge from a falling one by reading the pin when it handles the edge. Needs
   edison-image v0.2.7 or later for that accuracy: it keeps the CPUs out of deep sleep while
   it waits, as the timestamps are taken when the CPU handles the edge; on earlier images
   results can be off by a few hundred microseconds.
