@@ -4,7 +4,7 @@
 # https://arduino.github.io/arduino-cli/latest/platform-specification/
 
 name=Intel Edison
-version=0.1.7
+version=0.1.8
 
 # Tools. To build against local copies, set these in platform.local.txt (see README).
 compiler.path={runtime.tools.edison-zig.path}/
