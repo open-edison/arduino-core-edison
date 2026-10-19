@@ -109,7 +109,7 @@ func hostKeyCallback(dir string, usb bool) (ssh.HostKeyCallback, error) {
 		}
 		if errors.As(err, &keyErr) {
 			return fmt.Errorf("the board at %s has a different host key than last time.\n"+
-				"If it was reflashed without its settings, or is another board, run\n"+
+				"If it was reflashed, or is another board, run\n"+
 				"  edison-upload -forget %s\nand upload again. Otherwise something is "+
 				"impersonating it", host, knownhosts.Normalize(host))
 		}

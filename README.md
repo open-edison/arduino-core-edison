@@ -112,7 +112,9 @@ The upload is done over SSH by `edison-upload` ([tools/edison-upload](tools/edis
 a key for that computer (kept in `edison-upload` under your user config directory), so
 later uploads don't need it. The IDE still asks once for each sketch you open and won't
 accept an empty field, so type anything there: with the key installed, it's ignored. On the network, the board's host key is remembered on first use; if it
-changes (another board at that address), `edison-upload -forget ADDRESS` clears it.
+changes (a reflashed board, or another board at that address), `edison-upload -forget
+ADDRESS` clears it. A reflash also removes the computer's key from the board, so the next
+upload asks for the password again.
 
 ## Contributing
 
